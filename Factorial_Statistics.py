@@ -13,16 +13,17 @@ Example: 6! = 720 = 2^4 x 3^2 x 5^1 is represented as [4, 2, 1]
 The only known non-trivial solution is 6! x 7! = 10!
 
 Author: Ken Clements
-Date: October 30, 2024
+Date: October 31, 2024
 """
 
+from tqdm import tqdm
 import math
 import csv
 from datetime import datetime
 import argparse
 
 # Search Parameters
-SEARCH_LIMIT = 400  # Upper limit for factorial search
+SEARCH_LIMIT = 500  # Upper limit for factorial search
 WINDOW_SIZE = 10000  # Size of sliding window for factorial lists
 WINDOW_OVERLAP = 1000  # Number of entries to overlap between windows
 MAX_B_LOOKBACK = 1000  # How far back to look for b values from c
@@ -80,13 +81,17 @@ class SearchStats:
         """Ensure file is closed when object is destroyed"""
         self.close_stats_file()
 
+# END OF CLASS SearchStats
+
 class FactorialSearch:
-    def __init__(self, limit: int = SEARCH_LIMIT):
+    def __init__(self, limit: int = SEARCH_LIMIT, use_progress_bar: bool = False):
         self.limit = limit
         self.factorial_primes_list = [[0], [0], [1]]  # Start with 2! at index 2
         self.prime_cache = [2]  # Initialize with first prime
         self.window_start = 0  # Offset for indexing
         self.stats = SearchStats() if STATS_ENABLED else None
+        self.use_progress_bar = use_progress_bar
+
 
     def get_nth_prime(self, nth: int) -> int:
         """Get the nth prime number (0-based indexing)."""
@@ -157,15 +162,25 @@ class FactorialSearch:
             self.window_start = keep_start
 
         current_end = self.window_start + len(self.factorial_primes_list)
-        
-        for k in range(current_end, new_end + 1):
+    
+        # Set up progress tracking for factorial generation
+        remaining_factors = range(current_end, new_end + 1)
+        if self.use_progress_bar:
+           progress_iter = tqdm(remaining_factors, 
+                           desc="Generating factorial prime factors",
+                           unit="factorial")
+        else:
+            progress_iter = remaining_factors
+    
+        for k in progress_iter:
             k_factors = self.get_p_factor_list(k)
             prev_factorial_factors = self.get_factorial_factors(k-1).copy()
             new_factorial_factors = sum_factors(k_factors, prev_factorial_factors)
             self.factorial_primes_list.append(new_factorial_factors)
-            
-            if k % FACTOR_PROGRESS_INTERVAL == 0:
+        
+            if not self.use_progress_bar and k % FACTOR_PROGRESS_INTERVAL == 0:
                 print(f"Generated factorial prime factors up to {k}")
+
 
     def search(self):
         """Main search function with sliding window"""
@@ -173,39 +188,39 @@ class FactorialSearch:
         current_start = 2
         total_exceptions = 0
         exceptions_past_10 = 0
-        
+    
         while current_start < self.limit:
             current_end = min(current_start + window_size, self.limit)
-            print(f"\nSliding window to range {current_start}! to {current_end}!")
-            
+            print(f"\nProcessing window {current_start}! to {current_end}!")
+        
             self.slide_window(current_start, current_end)
-            
+        
             if self.stats:
                 self.stats.open_stats_file()
-            
+        
             exceptions = search_section(self, current_start, current_end)
-            
+        
             if exceptions:
                 for a, b, c in exceptions:
-                    print(f"Found exception: {a}! × {b}! = {c}!")
+                    print(f"\nFound exception: {a}! × {b}! = {c}!")
                     total_exceptions += 1
                     if c > 10:
                         exceptions_past_10 += 1
-            else:
-                print("No exceptions found in this range")
-            
+        
             if self.stats:
                 self.stats.close_stats_file()
-            
+        
             if current_end >= self.limit:
                 break
-            
-            current_start = current_end - WINDOW_OVERLAP
         
+            current_start = current_end - WINDOW_OVERLAP
+    
         print("\nSearch Complete!")
         print(f"Searched factorial products up to {self.limit}!")
         print(f"Total exceptions found: {total_exceptions}")
         print(f"Exceptions found past 10!: {exceptions_past_10}")
+
+# END OF CLASS FactorialSearch
 
 def remove_trailing_zeros(diff):
     while diff and diff[-1] == 0:
@@ -225,7 +240,16 @@ def sum_factors(list1, list2):
 
 def search_section(searcher, start_idx, end_idx):
     exceptions = []
-    for c_idx in range(start_idx, end_idx):
+    
+    # Set up progress tracking for search phase
+    if searcher.use_progress_bar:
+        c_range = tqdm(range(start_idx, end_idx),
+                      desc="Searching for solutions",
+                      unit="c")
+    else:
+        c_range = range(start_idx, end_idx)
+     
+    for c_idx in c_range:
         # Initialize statistics for this c value
         stats_for_c = {
             'max_prime_idx': 0,  # Highest prime index in c's factors
@@ -319,13 +343,16 @@ def parse_arguments():
                        help='Size of sliding window for factorial lists')
     parser.add_argument('--no-stats', action='store_true',
                        help='Disable statistics collection')
+    parser.add_argument('--progress-bar', action='store_true',
+                       help='Use progress bar instead of interval reporting')
     
     return parser.parse_args()
 
 if __name__ == "__main__":
+
     args = parse_arguments()
     STATS_ENABLED = not args.no_stats
-    searcher = FactorialSearch(limit=args.limit)
+    searcher = FactorialSearch(limit=args.limit, use_progress_bar=args.progress_bar)
     searcher.search()
 
 # END OF PROGRAM
