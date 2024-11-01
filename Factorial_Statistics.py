@@ -1,5 +1,5 @@
 """
-Factorial Product Search Program - Revision 1.4
+Factorial Product Search Program - Revision 1.6
 =============================================
 This program searches for solutions to the equation a! x b! = c! where 1 < a < b < c.
 Uses prime factor exponent lists and sliding window technique to manage memory usage.
@@ -13,7 +13,7 @@ Example: 6! = 720 = 2^4 x 3^2 x 5^1 is represented as [4, 2, 1]
 The only known non-trivial solution is 6! x 7! = 10!
 
 Author: Ken Clements
-Date: October 31, 2024
+Date: Nov. 1, 2024
 """
 
 from tqdm import tqdm
@@ -41,10 +41,10 @@ class SearchStats:
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         self.filename = f"{STATS_FILE_PREFIX}_{timestamp}.csv"
         self.current_file = None
-        self.headers = ['c', 'max_prime_idx', 'b_range_size',
-                       'length_mismatches', 'internal_zeros',
-                       'last_exp_too_large', 'b_attempts',
-                       'smaller_rejects', 'avg_ba_diff']
+        self.headers = ['c', 'b_range_size',
+                       'length_mismatches', 'non-monotonic', 'internal_zeros',
+                       'top-diff-!=1', 'last_exp_too_large', 'b_attempts',
+                       'smaller_rejects', 'PF-slope', 'avg_ba_diff']
         
         # Create file and write headers
         with open(self.filename, 'w', newline='') as f:
@@ -71,10 +71,10 @@ class SearchStats:
         avg_ba_diff = (sum(stats['ba_diffs']) / len(stats['ba_diffs'])
                       if stats['ba_diffs'] else 0)
         self.writer.writerow([
-            c, stats['max_prime_idx'], stats['b_range_size'],
-            stats['length_mismatches'], stats['internal_zeros'],
-            stats['last_exp_too_large'], stats['b_attempts'],
-            stats['smaller_rejects'], avg_ba_diff
+            c, stats['b_range_size'],
+            stats['length_mismatches'], stats['non-monotonic'], stats['internal_zeros'],
+            stats['top-diff-!=1'], stats['last_exp_too_large'], stats['b_attempts'],
+             stats['smaller_rejects'], stats['PF-slope'], avg_ba_diff
         ])
 
     def __del__(self):
@@ -202,7 +202,7 @@ class FactorialSearch:
         
             if exceptions:
                 for a, b, c in exceptions:
-                    print(f"\nFound exception: {a}! × {b}! = {c}!")
+                    print(f"\nFound exception: {a}! x {b}! = {c}!")
                     total_exceptions += 1
                     if c > 10:
                         exceptions_past_10 += 1
@@ -252,55 +252,88 @@ def search_section(searcher, start_idx, end_idx):
     for c_idx in c_range:
         # Initialize statistics for this c value
         stats_for_c = {
-            'max_prime_idx': 0,  # Highest prime index in c's factors
-            'b_range_size': 0,  # Size of b range for this c
-            'length_mismatches': 0,  # Count of b values rejected due to length
-            'internal_zeros': 0,  # Count of diff lists with internal zeros
-            'last_exp_too_large': 0,  # Count of diff lists with last exp > 1
-            'b_attempts': 0,  # Count of b values that passed length check
-            'smaller_rejects': 0,  # Count of a values rejected for small exponents
-            'ba_diffs': []  # Store b-a differences when rejecting
+            'b_range_size': 0,      # Size of b range for this c
+            'length_mismatches': 0, # Count of b values rejected due to length
+            'non-monotonic': 0,     # Diff was not monotonic decreasing
+            'top-diff-!=1': 0,      # Top prime exp in diff not 1
+            'internal_zeros': 0,    # Count of diff lists with internal zeros
+            'last_exp_too_large': 0, # Count of diff lists with last exp > 1
+            'b_attempts': 0,        # Count of b values that passed length check
+            'smaller_rejects': 0,   # Count of a values rejected for small exponents
+            'PF-slope': 0,          # Difference between exponent for 2 and 5
+            'ba_diffs': []          # Store b-a differences when rejecting
         }
         
         c_factors = searcher.get_factorial_factors(c_idx)
-        
-        # Find highest non-zero prime index in c_factors
-        for i in range(len(c_factors)-1, -1, -1):
-            if c_factors[i] != 0:
-                stats_for_c['max_prime_idx'] = i
-                break
-        
+        c_length = len(c_factors) # How long is this factorization
+
+        # Use the difference between the 2 and 5 exponents aa a 
+        # proxy for the exponent curve slope
+        if c_length > 2:
+            stats_for_c['PF-slope'] = c_factors[0] - c_factors[2]
+
         # Calculate b range size
-        first_b = c_idx - 2
+        first_b = c_idx - 2 # c_idx - 1 is the trivial case b_idx
         last_b = max(2, c_idx-MAX_B_LOOKBACK)
         stats_for_c['b_range_size'] = first_b - last_b + 1
         
         for b_idx in range(first_b, last_b, -1):
             b_factors = searcher.get_factorial_factors(b_idx)
             
-            if len(b_factors) != len(c_factors):
+            if len(b_factors) != c_length: # Lengths must match
                 stats_for_c['length_mismatches'] += 1
-                continue
-            
+                break # Go get next c_idx
+
             stats_for_c['b_attempts'] += 1
-            diff = [c_factors[j] - b_factors[j] for j in range(len(c_factors))]
-            diff = remove_trailing_zeros(diff.copy())
+            stats_for_c['b_range_size'] = first_b + 1 - b_idx # Show range we got so far
             
-            if any(x == 0 for x in diff[:-1]):
-                stats_for_c['internal_zeros'] += 1
-                continue
-            
-            if diff and diff[-1] > 1:
+            # With matching length b_factors, we need to find the highest
+            # order prime exponents that don't subtract to zero
+            # and check that subtraction equals 1
+            d_idx = c_length-2
+            for j in range(c_length-2, -1, -1):
+                d_idx = j # Find the high prime index for diff
+                if c_factors[j] > b_factors[j]:
+                    break
+
+            # Top exp of diff must == 1
+            if c_factors[d_idx] - b_factors[d_idx] > 1: 
                 stats_for_c['last_exp_too_large'] += 1
-                continue
+                break # go to next c_idx 
             
+           
+            diff = [] # Start building the difference in prime factor exponetns
+            diff.append(c_factors[0] - b_factors[0]) # Do the 2 power first
+            if diff[0] == 0: # Cannot be zero
+                stats_for_c['internal_zeros'] += 1 # mark in stats
+                continue # move on to next b_idx
+            error_flag = False
+            for j in range(1,d_idx+1): # Start at power of 3                       
+                diff.append(c_factors[j] - b_factors[j]) # Subtract power list
+
+                if diff[j] == 0: # Cannot be zero
+                    stats_for_c['internal_zeros'] += 1 # mark in stats
+                    error_flag = True
+                    break # monve on to the next b_idx
+
+                if diff[j] > diff[j-1]: # Powers must be monotnic decreasing
+                    stats_for_c['non-monotonic'] += 1
+                    error_flag = True
+                    break # move on to the next b_idx
+            if error_flag:
+                continue # Move on to next b_idx
+            
+ 
+            # At this point we have a power string in diff
+            # that could match a factorial
+           
             # Search backwards from b-1 for matching a
-            found_smaller = False
+            error_flag = False
             for a_idx in range(b_idx-1, max(2, b_idx-MAX_A_LOOKBACK), -1):
                 a_factors = searcher.get_factorial_factors(a_idx)
                 
                 if len(a_factors) < len(diff):
-                    found_smaller = True
+                    error_flag = True
                     stats_for_c['smaller_rejects'] += 1
                     stats_for_c['ba_diffs'].append(b_idx - a_idx)
                     break
@@ -311,7 +344,7 @@ def search_section(searcher, start_idx, end_idx):
                 # Check each exponent in order
                 for i in range(len(diff)):
                     if a_factors[i] < diff[i]:
-                        found_smaller = True
+                        error_flag = True
                         stats_for_c['smaller_rejects'] += 1
                         stats_for_c['ba_diffs'].append(b_idx - a_idx)
                         break
@@ -321,7 +354,7 @@ def search_section(searcher, start_idx, end_idx):
                     exceptions.append((a_idx, b_idx, c_idx))
                     break
                 
-                if found_smaller:
+                if error_flag:
                     break
         
         # Record stats for this c value if we had any activity
@@ -333,7 +366,7 @@ def search_section(searcher, start_idx, end_idx):
 
 def parse_arguments():
     parser = argparse.ArgumentParser(
-        description='Factorial Product Search Program - Searches for solutions to a! × b! = c!',
+        description='Factorial Product Search Program - Searches for solutions to a! x b! = c!',
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
     
