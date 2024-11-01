@@ -26,6 +26,9 @@ If you want to watch it make progress while it runs, use --progress-bar to
 see how fast it is generating lists of primes and how fast it
 is searching those lists.
 
+The code uses the python tqdm module for the console parser. You may need to:
+pip install tqdm
+
 
 -Ken Clements
 
