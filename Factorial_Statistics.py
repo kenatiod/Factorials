@@ -1,5 +1,5 @@
 """
-Factorial Product Search Program - Revision 2.2
+Factorial Product Search Program - Revision 3.0
 =============================================
 This program searches for solutions to the equation a! x b! = c! where 1 < a < b < c.
 Uses prime factor exponent lists and sliding window technique to manage memory usage.
@@ -85,13 +85,14 @@ class SearchStats:
 # END OF CLASS SearchStats
 
 class FactorialSearch:
-    def __init__(self, limit: int = SEARCH_LIMIT, use_progress_bar: bool = False):
+    def __init__(self, limit: int = SEARCH_LIMIT, use_progress_bar: bool = False, k_primes: int = 0):
         self.limit = limit
         self.factorial_primes_list = [[0], [0], [1]]  # Start with 2! at index 2
         self.prime_cache = [2]  # Initialize with first prime
         self.window_start = 0  # Offset for indexing
         self.stats = SearchStats() if STATS_ENABLED else None
         self.use_progress_bar = use_progress_bar
+        self.k_primes = k_primes
 
 
     def get_nth_prime(self, nth: int) -> int:
@@ -206,7 +207,10 @@ class FactorialSearch:
         
             if exceptions:
                 for a, b, c in exceptions:
-                    print(f"\nFound exception: {a}! x {b}! = {c}!")
+                    if self.k_primes == 0: # Normal search
+                        print(f"\nFound exception: {a}! x {b}! = {c}!")
+                    else:
+                        print(f"Found possible exception: {a}! x {b}! = {c}!")
                     total_exceptions += 1
                     if c > 10:
                         exceptions_past_10 += 1
@@ -249,6 +253,9 @@ def search_section(searcher, start_idx, end_idx):
     else:
         c_range = range(start_idx, end_idx)
      
+    k_primes = searcher.k_primes # if > 0, only searh for match in lower prime factors
+    # print(f"k_primes = {k_primes}")
+
     for c_idx in c_range:
         # Initialize statistics for this c value
         stats_for_c = {
@@ -282,24 +289,34 @@ def search_section(searcher, start_idx, end_idx):
             b_factors = searcher.get_factorial_factors(b_idx)
             stats_for_c['b_attempts'] += 1
 
-            if len(b_factors) != c_length: # Lengths must match
-                stats_for_c['length_mismatches'] += 1
-                break # Go get next c_idx
-            
-            # With matching length b_factors, we need to find the highest
-            # order prime exponents that don't subtract to zero
-            # and check that subtraction equals 1
-            d_idx = c_length-2
-            for j in range(c_length-2, -1, -1):
-                d_idx = j # Find the high prime index for diff
-                if c_factors[j] > b_factors[j]:
-                    break
+            # If the user specified a number of lower primes to use
+            # in the search, stup using haigher factors of b_factors
+            not_using_k_primes = (k_primes == 0) or (len(b_factors) <= k_primes)
+            # print(f"not_using_k_primes is {not_using_k_primes} and len(b_factors) is {len(b_factors)}")
 
-            # Top exp of diff must == 1
-            if c_factors[d_idx] - b_factors[d_idx] > 1: 
-                stats_for_c['last_exp_too_large'] += 1
-                break # go to next c_idx 
+            if  not_using_k_primes: # Do these tests for full search
+                # Lengths must match unless we are only using the lower k primes
+                if len(b_factors) != c_length: # Lengths must match
+                    stats_for_c['length_mismatches'] += 1
+                    break # Go get next c_idx
             
+                # With matching length b_factors, we need to find the highest
+                # order prime exponents that don't subtract to zero
+                # and check that subtraction equals 1
+                d_idx = c_length-2
+                for j in range(c_length-2, -1, -1):
+                    d_idx = j # Find the high prime index for diff
+                    if c_factors[j] > b_factors[j]:
+                        break
+
+                # Top exp of diff must == 1
+                if c_factors[d_idx] - b_factors[d_idx] > 1: 
+                    stats_for_c['last_exp_too_large'] += 1
+                    break # go to next c_idx 
+
+            else: # Here if we are using k_primes part of b_factors
+                d_idx = k_primes-1 # That is as far as we go into b_factors
+                    
            
             diff = [] # Start building the difference in prime factor exponetns
             diff.append(c_factors[0] - b_factors[0]) # Do the 2 power first
@@ -307,7 +324,14 @@ def search_section(searcher, start_idx, end_idx):
                 stats_for_c['internal_zeros'] += 1 # mark in stats
                 continue # move on to next b_idx
             error_flag = False
-            for j in range(1,d_idx+1): # Start at power of 3                       
+
+            # if c_idx < 11:
+            #    print(f"b_idx = {b_idx}, d_idx = {d_idx} and length of b_factors is {len(b_factors)}")
+            #    print(f"b_factors are {b_factors} and c_factors are {c_factors}")
+                
+
+            for j in range(1,d_idx+1): # Start at power of 3  
+                # print(f"j = {j}")                     
                 diff.append(c_factors[j] - b_factors[j]) # Subtract power list
 
                 if diff[j] == 0: # Cannot be zero
@@ -319,6 +343,9 @@ def search_section(searcher, start_idx, end_idx):
                     stats_for_c['non-monotonic'] += 1
                     error_flag = True
                     break # move on to the next b_idx
+            # if c_idx < 11:
+            #    print(f"diff = {diff}")
+                
             if error_flag:
                 continue # Move on to next b_idx
             
@@ -345,7 +372,7 @@ def search_section(searcher, start_idx, end_idx):
             for a_idx in range(2, b_idx):
                 a_factors = searcher.get_factorial_factors(a_idx)
     
-                if len(a_factors) > len(diff):
+                if len(a_factors) > len(diff) and not_using_k_primes:
                     break  # All higher a values will be too large
     
                 if len(a_factors) < len(diff):
@@ -387,6 +414,8 @@ def parse_arguments():
                        help='Disable statistics collection')
     parser.add_argument('--progress-bar', action='store_true',
                        help='Use progress bar instead of interval reporting')
+    parser.add_argument('--k_primes', type=int, default=0,
+                       help='Only use first k prime factors in search')
     
     return parser.parse_args()
 
@@ -394,7 +423,7 @@ if __name__ == "__main__":
 
     args = parse_arguments()
     STATS_ENABLED = not args.no_stats
-    searcher = FactorialSearch(limit=args.limit+1, use_progress_bar=args.progress_bar)
+    searcher = FactorialSearch(limit=args.limit+1, use_progress_bar=args.progress_bar, k_primes=args.k_primes)
     searcher.search()
 
 # END OF PROGRAM
