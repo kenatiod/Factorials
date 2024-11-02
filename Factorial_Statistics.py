@@ -1,5 +1,5 @@
 """
-Factorial Product Search Program - Revision 3.0
+Factorial Product Search Program - Revision 3.1
 =============================================
 This program searches for solutions to the equation a! x b! = c! where 1 < a < b < c.
 Uses prime factor exponent lists and sliding window technique to manage memory usage.
@@ -155,7 +155,8 @@ class FactorialSearch:
         """Get factorial factors adjusting for window offset"""
         return self.factorial_primes_list[idx - self.window_start]
 
-    def slide_window(self, new_start, new_end):
+
+    def slide_window(self, new_start, new_end, quiet=False):  # Add quiet parameter
         """Slide the window of factorial prime factors"""
         keep_start = max(2, new_start - WINDOW_OVERLAP)
         if keep_start > self.window_start:
@@ -180,14 +181,13 @@ class FactorialSearch:
             new_factorial_factors = sum_factors(k_factors, prev_factorial_factors)
             self.factorial_primes_list.append(new_factorial_factors)
         
-            if not self.use_progress_bar and k % FACTOR_PROGRESS_INTERVAL == 0:
- #              print(f"Found prime factors up to {k}! Largest prime in cache is {self.prime_cache[-1]}")
+            if not self.use_progress_bar and k % FACTOR_PROGRESS_INTERVAL == 0 and not quiet:
                 # Find the index of the last non-zero exponent
                 last_prime_idx = len(new_factorial_factors) - 1
                 highest_prime = self.prime_cache[last_prime_idx]
                 print(f"Found prime factors up to {k}! Highest prime used is {highest_prime}")
 
-    def search(self):
+    def search(self, quiet=False):  # Add quiet parameter
         """Main search function with sliding window"""
         window_size = WINDOW_SIZE
         current_start = 2
@@ -196,7 +196,9 @@ class FactorialSearch:
     
         while current_start < self.limit:
             current_end = min(current_start + window_size, self.limit)
-            print(f"\nProcessing window {current_start-1}! to {current_end}!")
+            if not quiet:
+                print(f"\nProcessing window {current_start-1}! to {current_end}!")
+
         
             self.slide_window(current_start, current_end)
         
@@ -207,10 +209,12 @@ class FactorialSearch:
         
             if exceptions:
                 for a, b, c in exceptions:
-                    if self.k_primes == 0: # Normal search
-                        print(f"\nFound exception: {a}! x {b}! = {c}!")
-                    else:
-                        print(f"Found possible exception: {a}! x {b}! = {c}!")
+                    if not quiet:
+                        if self.k_primes == 0:
+                            print(f"\nFound exception: {a}! x {b}! = {c}!")
+                        else:
+                            print(f"Found possible exception: {a}! x {b}! = {c}!")
+
                     total_exceptions += 1
                     if c > 10:
                         exceptions_past_10 += 1
@@ -222,11 +226,12 @@ class FactorialSearch:
                 break
         
             current_start = current_end - WINDOW_OVERLAP
-    
-        print("\nSearch Complete!")
-        print(f"Searched factorial products up to {self.limit-1}!")
-        print(f"Total exceptions found: {total_exceptions}")
-        print(f"Exceptions found past 10!: {exceptions_past_10}")
+        if not quiet:
+            print("\nSearch Complete!")
+            print(f"Searched factorial products up to {self.limit-1}!")
+            print(f"Total exceptions found: {total_exceptions}")
+            print(f"Exceptions found past 10!: {exceptions_past_10}")
+
 
 # END OF CLASS FactorialSearch
 
@@ -242,7 +247,7 @@ def sum_factors(list1, list2):
         result.pop()
     return result
 
-def search_section(searcher, start_idx, end_idx):
+def search_section(searcher, start_idx, end_idx, quiet=False):
     exceptions = []
     
     # Set up progress tracking for search phase
@@ -272,7 +277,8 @@ def search_section(searcher, start_idx, end_idx):
         c_factors = searcher.get_factorial_factors(c_idx)
         c_length = len(c_factors) # How long is this factorization
         stats_for_c['c_list_length'] = c_length
-        if not searcher.use_progress_bar and (c_idx + 1 == end_idx):
+
+        if not searcher.use_progress_bar and (c_idx + 1 == end_idx) and not quiet:
             print(f"Finished check for {c_idx}! with {c_length} prime factors")
 
         # Use the difference between the 2 and 5 exponents aa a 
