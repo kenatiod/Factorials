@@ -13,7 +13,7 @@ The program Factorial_Statistics.py is a command line python program that
 searches the integer solution space for triplets that solve the
 equation, but don't follow the usual pattern where b! = c!-1.
 
-Run "python Factorial_Statistics.py" to do a default search up to 500! and 
+Run "python Factorial_Statistics.py" to do a default search up to 2500! and 
 generate a .csv statistics file on the way. The statistics are useful
 in a "vanishing possibility" proof that (6, 7, 10) is the only special
 solution.
