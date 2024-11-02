@@ -1,5 +1,5 @@
 """
-Factorial Product Search Program - Revision 1.6
+Factorial Product Search Program - Revision 2.2
 =============================================
 This program searches for solutions to the equation a! x b! = c! where 1 < a < b < c.
 Uses prime factor exponent lists and sliding window technique to manage memory usage.
@@ -23,11 +23,11 @@ from datetime import datetime
 import argparse
 
 # Search Parameters
-SEARCH_LIMIT = 500  # Upper limit for factorial search
-WINDOW_SIZE = 10000  # Size of sliding window for factorial lists
-WINDOW_OVERLAP = 1000  # Number of entries to overlap between windows
+SEARCH_LIMIT = 2500  # Upper limit for factorial search
+WINDOW_SIZE = 50000  # Size of sliding window for factorial lists
+WINDOW_OVERLAP = 5000  # Number of entries to overlap between windows
 MAX_B_LOOKBACK = 1000  # How far back to look for b values from c
-MAX_A_LOOKBACK = 100  # How far back to look for a values from b
+
 
 # Progress Reporting
 FACTOR_PROGRESS_INTERVAL = 1000  # How often to report factorial generation progress
@@ -41,10 +41,11 @@ class SearchStats:
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         self.filename = f"{STATS_FILE_PREFIX}_{timestamp}.csv"
         self.current_file = None
-        self.headers = ['c', 'b_range_size',
+        self.headers = ['c', 'c_list_length',
                        'length_mismatches', 'non-monotonic', 'internal_zeros',
-                       'top-diff-!=1', 'last_exp_too_large', 'b_attempts',
-                       'smaller_rejects', 'PF-slope', 'avg_ba_diff']
+                       'last_exp_too_large', 'b_attempts',
+                       'a_attempts',
+                       'smaller_rejects', 'PF-slope']
         
         # Create file and write headers
         with open(self.filename, 'w', newline='') as f:
@@ -68,13 +69,13 @@ class SearchStats:
         """Record statistics for a single c value"""
         if self.current_file is None:
             self.open_stats_file()
-        avg_ba_diff = (sum(stats['ba_diffs']) / len(stats['ba_diffs'])
-                      if stats['ba_diffs'] else 0)
+        
         self.writer.writerow([
-            c, stats['b_range_size'],
+            c, stats['c_list_length'],
             stats['length_mismatches'], stats['non-monotonic'], stats['internal_zeros'],
-            stats['top-diff-!=1'], stats['last_exp_too_large'], stats['b_attempts'],
-             stats['smaller_rejects'], stats['PF-slope'], avg_ba_diff
+            stats['last_exp_too_large'], stats['b_attempts'],
+            stats['a_attempts'],
+            stats['smaller_rejects'], stats['PF-slope']
         ])
 
     def __del__(self):
@@ -179,8 +180,11 @@ class FactorialSearch:
             self.factorial_primes_list.append(new_factorial_factors)
         
             if not self.use_progress_bar and k % FACTOR_PROGRESS_INTERVAL == 0:
-                print(f"Generated factorial prime factors up to {k}")
-
+ #              print(f"Found prime factors up to {k}! Largest prime in cache is {self.prime_cache[-1]}")
+                # Find the index of the last non-zero exponent
+                last_prime_idx = len(new_factorial_factors) - 1
+                highest_prime = self.prime_cache[last_prime_idx]
+                print(f"Found prime factors up to {k}! Highest prime used is {highest_prime}")
 
     def search(self):
         """Main search function with sliding window"""
@@ -191,7 +195,7 @@ class FactorialSearch:
     
         while current_start < self.limit:
             current_end = min(current_start + window_size, self.limit)
-            print(f"\nProcessing window {current_start}! to {current_end}!")
+            print(f"\nProcessing window {current_start-1}! to {current_end}!")
         
             self.slide_window(current_start, current_end)
         
@@ -216,16 +220,12 @@ class FactorialSearch:
             current_start = current_end - WINDOW_OVERLAP
     
         print("\nSearch Complete!")
-        print(f"Searched factorial products up to {self.limit}!")
+        print(f"Searched factorial products up to {self.limit-1}!")
         print(f"Total exceptions found: {total_exceptions}")
         print(f"Exceptions found past 10!: {exceptions_past_10}")
 
 # END OF CLASS FactorialSearch
 
-def remove_trailing_zeros(diff):
-    while diff and diff[-1] == 0:
-        diff.pop()
-    return diff
 
 def sum_factors(list1, list2):
     list1 = list1.copy()
@@ -252,20 +252,21 @@ def search_section(searcher, start_idx, end_idx):
     for c_idx in c_range:
         # Initialize statistics for this c value
         stats_for_c = {
-            'b_range_size': 0,      # Size of b range for this c
             'length_mismatches': 0, # Count of b values rejected due to length
             'non-monotonic': 0,     # Diff was not monotonic decreasing
-            'top-diff-!=1': 0,      # Top prime exp in diff not 1
             'internal_zeros': 0,    # Count of diff lists with internal zeros
             'last_exp_too_large': 0, # Count of diff lists with last exp > 1
             'b_attempts': 0,        # Count of b values that passed length check
+            'a_attempts': 0,        # Number of times it trys to find a!
             'smaller_rejects': 0,   # Count of a values rejected for small exponents
-            'PF-slope': 0,          # Difference between exponent for 2 and 5
-            'ba_diffs': []          # Store b-a differences when rejecting
+            'PF-slope': 0           # Difference between exponent for 2 and 5
         }
         
         c_factors = searcher.get_factorial_factors(c_idx)
         c_length = len(c_factors) # How long is this factorization
+        stats_for_c['c_list_length'] = c_length
+        if not searcher.use_progress_bar and (c_idx + 1 == end_idx):
+            print(f"Finished check for {c_idx}! with {c_length} prime factors")
 
         # Use the difference between the 2 and 5 exponents aa a 
         # proxy for the exponent curve slope
@@ -275,17 +276,15 @@ def search_section(searcher, start_idx, end_idx):
         # Calculate b range size
         first_b = c_idx - 2 # c_idx - 1 is the trivial case b_idx
         last_b = max(2, c_idx-MAX_B_LOOKBACK)
-        stats_for_c['b_range_size'] = first_b - last_b + 1
+    
         
         for b_idx in range(first_b, last_b, -1):
             b_factors = searcher.get_factorial_factors(b_idx)
-            
+            stats_for_c['b_attempts'] += 1
+
             if len(b_factors) != c_length: # Lengths must match
                 stats_for_c['length_mismatches'] += 1
                 break # Go get next c_idx
-
-            stats_for_c['b_attempts'] += 1
-            stats_for_c['b_range_size'] = first_b + 1 - b_idx # Show range we got so far
             
             # With matching length b_factors, we need to find the highest
             # order prime exponents that don't subtract to zero
@@ -324,29 +323,39 @@ def search_section(searcher, start_idx, end_idx):
                 continue # Move on to next b_idx
             
  
-            # At this point we have a power string in diff
+            # At this point we have a proper string in diff
             # that could match a factorial
-           
+            # print(f"Attempting to find a! for {c_idx}! and {b_idx}! b = c - {c_idx-b_idx} and length of diff is {len(diff)}")
+            # print(f"c_factors = {c_factors}")
+            # print(f"b_factors = {b_factors}")
+            # print(f"Diff = {diff}")
             # Search backwards from b-1 for matching a
+
+            # Assert that window hasn't slid before searching for small a_idx value
+            # print(f"Window start = {searcher.window_start}")
+            assert searcher.window_start <= 2, (
+                "Window has slid but attempting to search low a values. "
+                "Initial window size must be at least 2200."
+                )
+            
+            stats_for_c['a_attempts'] += 1  # Count the attempt
+
+            # Search upward from 2 for matching a
             error_flag = False
-            for a_idx in range(b_idx-1, max(2, b_idx-MAX_A_LOOKBACK), -1):
+            for a_idx in range(2, b_idx):
                 a_factors = searcher.get_factorial_factors(a_idx)
-                
-                if len(a_factors) < len(diff):
-                    error_flag = True
-                    stats_for_c['smaller_rejects'] += 1
-                    stats_for_c['ba_diffs'].append(b_idx - a_idx)
-                    break
-                
+    
                 if len(a_factors) > len(diff):
-                    continue
-                
+                    break  # All higher a values will be too large
+    
+                if len(a_factors) < len(diff):
+                    continue  # Try next a value
+
                 # Check each exponent in order
                 for i in range(len(diff)):
                     if a_factors[i] < diff[i]:
                         error_flag = True
                         stats_for_c['smaller_rejects'] += 1
-                        stats_for_c['ba_diffs'].append(b_idx - a_idx)
                         break
                     if a_factors[i] > diff[i]:
                         break
@@ -354,8 +363,8 @@ def search_section(searcher, start_idx, end_idx):
                     exceptions.append((a_idx, b_idx, c_idx))
                     break
                 
-                if error_flag:
-                    break
+            if error_flag:
+                break
         
         # Record stats for this c value if we had any activity
         if searcher.stats and (stats_for_c['b_attempts'] > 0 or
@@ -385,7 +394,7 @@ if __name__ == "__main__":
 
     args = parse_arguments()
     STATS_ENABLED = not args.no_stats
-    searcher = FactorialSearch(limit=args.limit, use_progress_bar=args.progress_bar)
+    searcher = FactorialSearch(limit=args.limit+1, use_progress_bar=args.progress_bar)
     searcher.search()
 
 # END OF PROGRAM
