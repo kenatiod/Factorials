@@ -1,5 +1,5 @@
 # Factorials
-Code to explore a! x b! = c! where 1 < a < b < c
+Code to explore a! x b! = c! where 1 < a < b < c-1
 
 I became interested in the solutions to this factorial equation. It turns out that
 there is a countable infinity of solutions of the form:
@@ -11,7 +11,10 @@ solutions that don't fit? Can we prove that there are not?
 
 The program Factorial_Statistics.py is a command line python program that
 searches the integer solution space for triplets that solve the
-equation, but don't follow the usual pattern where b! = c!-1.
+equation, but don't follow the usual pattern where b! = (c-1)! resulting in
+a! = c. It does this by succesive tests of integers for c, and then
+looping back from b = c-2 to c/2, checks to see if c!/b! equals
+any a! for a < b.
 
 Run "python Factorial_Statistics.py" to do a default search up to 2500! and 
 generate a .csv statistics file on the way. The statistics are useful
@@ -29,6 +32,9 @@ is searching those lists.
 The code uses the python tqdm module for the console parser. You may need to:
 pip install tqdm
 
+Using this program I was able to find a special number, where c = 2080, such
+that for all c > 2080, no candidate for b < c-1 and > c/2 can generate
+a c!/b! that could possibly be equal to a!
 
 -Ken Clements
 
